@@ -322,9 +322,23 @@ namespace GitHub.Runner.Worker
                     var equalsIndex = line.IndexOf("=", StringComparison.Ordinal);
                     var heredocIndex = line.IndexOf("<<", StringComparison.Ordinal);
 
+                    // Heredoc style NAME=<<EOF (where EOF is typically randomly-generated Base64 and may include an '=' character)
+                    // see https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
+                    // "key=<<EOF is also considered heredoc where the key contains an =.
+                    // Also we detect heredoc if whitespace chars exist between = and <<. (ex: "key      <<EOF")
+                    var isHeredoc = heredocIndex >= 0 &&
+                    (
+                        equalsIndex < 0 ||
+                        (
+                            heredocIndex > equalsIndex &&
+                            OnlyContainsWhiteSpaceBetweenPositions(line, equalsIndex, heredocIndex)
+                        ) ||
+                        heredocIndex < equalsIndex
+                    );
+
                     // Heredoc style NAME<<EOF (where EOF is typically randomly-generated Base64 and may include an '=' character)
                     // see https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
-                    if (heredocIndex >= 0 && (equalsIndex < 0 || heredocIndex < equalsIndex))
+                    if (isHeredoc)
                     {
                         var split = line.Split(new[] { "<<" }, 2, StringSplitOptions.None);
                         if (string.IsNullOrEmpty(split[0]) || string.IsNullOrEmpty(split[1]))
@@ -353,7 +367,7 @@ namespace GitHub.Runner.Worker
                         output = endIndex > startIndex ? text.Substring(startIndex, endIndex - startIndex) : string.Empty;
                     }
                     // Normal style NAME=VALUE
-                    else if (equalsIndex >= 0 && heredocIndex < 0)
+                    else if (equalsIndex >= 0)
                     {
                         var split = line.Split(new[] { '=' }, 2, StringSplitOptions.None);
                         if (string.IsNullOrEmpty(line))
@@ -381,6 +395,33 @@ namespace GitHub.Runner.Worker
         {
             // Invoke IEnumerator<KeyValuePair<string, string>> GetEnumerator() above.
             return GetEnumerator();
+        }
+
+        private static bool CheckIfOnlyWhitespaceBetweenSymbols(string str, int pos1, int pos2)
+{
+            // Check if the provided positions are valid
+            if (pos1 < 0 || pos2 < 0 || pos1 >= str.Length || pos2 >= str.Length)
+            {
+                throw new ArgumentOutOfRangeException("Whitespace check: Positions should be within the string length.");
+            }
+
+            // Ensure pos1 is always the smaller position
+            if (pos2 < pos1)
+            {
+                int temp = pos2;
+                pos2 = pos1;
+                pos1 = temp;
+            }
+
+            for (int i = pos1 + 1; i < pos2; i++)
+            {
+                if (!char.IsWhiteSpace(str[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static string ReadLine(
